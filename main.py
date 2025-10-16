@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
+from joblib import load
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score
@@ -102,6 +103,28 @@ def get_model_pipeline(features: list[str]) -> Pipeline:
 
 @st.cache_resource(show_spinner="กำลังเตรียมโมเดล...")
 def load_model(uploaded_file: bytes | None, features: tuple[str, ...]) -> tuple[Pipeline | None, str]:
+    # 1) พยายามโหลดจากอัปโหลด
+    if uploaded_file:
+        try:
+            model = load(io.BytesIO(uploaded_file))
+            # ตรวจ schema คอลัมน์ของ ColumnTransformer ถ้าเข้าถึงได้
+            try:
+                pre = model.named_steps.get("preprocess", None)
+                if pre is not None and hasattr(pre, "transformers_"):
+                    for name, trans, cols in pre.transformers_:
+                        if name == "num":
+                            expected = tuple(cols)
+                            if tuple(features) == expected:
+                                return model, "loaded_from_upload"
+                            else:
+                                st.warning("ชุดฟีเจอร์ที่เลือกไม่ตรงกับโมเดลที่อัปโหลด → จะเทรนใหม่จาก CSV")
+                                break
+            except Exception:
+                st.warning("ตรวจ schema ของโมเดลที่อัปโหลดไม่ได้ → จะเทรนใหม่จาก CSV")
+        except Exception as e:
+            st.error(f"ไม่สามารถโหลดไฟล์ .joblib ได้: {e}")
+            # ดำเนินการเทรนใหม่ด้านล่าง
+
     X, y = load_and_prep_data(CSV_FILE, list(features))
     if X is not None and y is not None:
         try:
